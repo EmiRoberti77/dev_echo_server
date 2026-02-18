@@ -15,3 +15,11 @@ RestartSec=2
 [Install]
 WantedBy=multi-user.target
 ```
+
+then enable the service
+```
+sudo systemctl daemon-reload
+sudo systemctl enable echo-server
+sudo systemctl start echo-server
+sudo systemctl status echo-server --no-pager
+```

@@ -1,8 +1,10 @@
+from ast import arg
 import asyncio
 from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
 import logger as l
+import argparse
 UTF8 = 'utf-8'
 
 @dataclass
@@ -65,8 +67,13 @@ async def main(host:str = 'localhost', port:int = 8010):
     await handle_tcp_connection(reader, writer)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-H', '--host', required=True)
+    parser.add_argument('-P', '--port', default='8010')
+    args = parser.parse_args()
+    l.log(args)
     try:
-        asyncio.run(main=main())
+        asyncio.run(main=main(args.host, int(args.port)))
     except KeyboardInterrupt:
         pass
     
