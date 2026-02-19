@@ -1,1 +1,1 @@
-python link.py -H 34.13.59.163 -P 8010 -p 8011 -B 192.168.0.100 -N link2 -L wifi
+python link.py -H 34.13.59.163 -P 8010 -p 8011 -B 192.168.68.51 -N link2 -L wifi
