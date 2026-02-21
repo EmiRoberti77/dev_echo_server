@@ -73,7 +73,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     l.log(args)
     try:
-        asyncio.run(main=main(args.host, int(args.port)))
+        asyncio.run(main(args.host, int(args.port)))
     except KeyboardInterrupt:
         pass
     

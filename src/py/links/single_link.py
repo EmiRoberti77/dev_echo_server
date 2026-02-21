@@ -1,4 +1,4 @@
-"""
+""" Emi
 this application rapresents a link.  This is a transmission channel.
 this is service is bidirectional sockets coms.
 this could be a:
@@ -139,8 +139,8 @@ async def handle_client(
         if bind_addr:
             kwargs["local_addr"] = bind_addr
         upstream_reader, upstream_writer = await asyncio.open_connection(**kwargs)
-        t1 = asyncio.create_task(pipe(client_reader, upstream_writer, 'c>>u'))
-        t2 = asyncio.create_task(pipe(upstream_reader, client_writer, 'u>>c'))
+        t1 = asyncio.create_task(pipe(client_reader, upstream_writer, 'C>>U'))
+        t2 = asyncio.create_task(pipe(upstream_reader, client_writer, 'U>>C'))
         _ , pending = await asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED)
         for t in pending:
             t.cancel()
