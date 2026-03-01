@@ -31,19 +31,33 @@ The code selects the best link by probe RTT (`select_best_link()`), not packet-l
 
 ## Network Diagram
 
-```mermaid
-flowchart LR
-    PI[Raspberry Pi\neth0: 192.168.137.2\nwlan0: 192.168.68.50]
-    WIN_ETH[Windows Ethernet\n192.168.137.1]
-    WIN_WIFI[Windows WiFi 3\n192.168.68.51]
-    ROUTER[Router\n192.168.68.1]
-    GCP[GCP VM\n34.13.59.163:8010]
+```text
+Path 1 (Ethernet source path via Windows ICS):
 
-    PI -->|Path 1 (eth0 source)| WIN_ETH
-    WIN_ETH --> WIN_WIFI
-    WIN_WIFI --> ROUTER --> GCP
+Raspberry Pi (eth0: 192.168.137.2)
+        |
+        v
+Windows Ethernet (192.168.137.1, ICS internal side)
+        |
+        v
+Windows WiFi 3 (192.168.68.51, internet uplink)
+        |
+        v
+Router (192.168.68.1)
+        |
+        v
+GCP VM (34.13.59.163:8010)
 
-    PI -->|Path 2 (wlan0 source)| ROUTER
+
+Path 2 (Direct WiFi source path):
+
+Raspberry Pi (wlan0: 192.168.68.50)
+        |
+        v
+Router (192.168.68.1)
+        |
+        v
+GCP VM (34.13.59.163:8010)
 ```
 
 ## Important Rules

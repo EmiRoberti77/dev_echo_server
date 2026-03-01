@@ -8,19 +8,33 @@ Configure the Raspberry Pi app (`src/py/links/multi_link.py`) to use two network
 
 ## Final Topology
 
-```mermaid
-flowchart LR
-    PI[Raspberry Pi\nwlan0: 192.168.68.50/22\neth0: 192.168.137.2/24]
-    W3[Windows WiFi 3\n192.168.68.51/22\nGW 192.168.68.1]
-    WE[Windows Ethernet\n192.168.137.1/24 (ICS)]
-    R68[Router\n192.168.68.1]
-    GCP[GCP VM\n34.13.59.163:8010]
+```text
+Path A (Direct WiFi route):
 
-    PI -->|Path A (direct WiFi route)| R68
-    R68 --> GCP
-    PI -->|Path B (Ethernet to Windows gateway)| WE
-    WE --> W3
-    W3 --> R68
+Raspberry Pi wlan0: 192.168.68.50/22
+        |
+        v
+Router: 192.168.68.1
+        |
+        v
+GCP VM: 34.13.59.163:8010
+
+
+Path B (Ethernet -> Windows gateway route):
+
+Raspberry Pi eth0: 192.168.137.2/24
+        |
+        v
+Windows Ethernet: 192.168.137.1/24 (ICS internal side)
+        |
+        v
+Windows WiFi 3: 192.168.68.51/22 (internet uplink)
+        |
+        v
+Router: 192.168.68.1
+        |
+        v
+GCP VM: 34.13.59.163:8010
 ```
 
 ---
