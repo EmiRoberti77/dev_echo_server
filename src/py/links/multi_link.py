@@ -9,9 +9,7 @@ usb       -> linked to wifi or ethernet
 """
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional, Any, Tuple
-import time
+from typing import Optional, Tuple, List
 import asyncio
 import logger as l
 # --------------------------------------------
@@ -21,11 +19,12 @@ BUFFER = 65536
 class Link:
     name:str
     bind_addr:Tuple[str,int]
+    target_addr: Optional[Tuple[str, int]] = None
     avg_rtt_ms:float = float('inf')
 # --------------------------------------------
-links = [
-    Link( name='Link A(plusnet)', bind_addr=('192.168.1.109', 0)),
-    Link( name='Link B(02-5G)', bind_addr=('192.168.68.51',0))
+links: List[Link] = [
+    Link(name='Link A', bind_addr=('127.0.0.1', 0)),
+    Link(name='Link B', bind_addr=('127.0.0.1', 0)),
 ]
 # --------------------------------------------
 link_idx = 0
@@ -57,12 +56,17 @@ async def pipe(r:asyncio.StreamReader, w:asyncio.StreamWriter, tag:str):
 async def handle_client(
     client_r:asyncio.StreamReader,
     client_w:asyncio.StreamWriter,
-    target_host:str,
-    target_port:int,
+    default_target_host:str,
+    default_target_port:int,
     use_bind_addr: bool = True,
 ) -> None:
     selected_link = select_link()
-    l.log(f'handle_client:selected={selected_link.name}')
+    target_host, target_port = selected_link.target_addr or (default_target_host, default_target_port)
+    l.log(
+        f'handle_client:selected={selected_link.name}:'
+        f'local={selected_link.bind_addr[0]}:'
+        f'target={target_host}:{target_port}'
+    )
     try:
         kwargs = {"host": target_host, "port": target_port}
         if use_bind_addr:
@@ -98,12 +102,54 @@ async def main(target_host: str, target_port: int, local_port: int, use_bind_add
 
 if __name__ == "__main__":
     import argparse
+
+    def parse_link_spec(spec: str) -> Link:
+        # Format: NAME,BIND_IP,TARGET_IP[,TARGET_PORT]
+        # Example: "wifi,192.168.68.50,192.168.68.51,8010"
+        parts = [p.strip() for p in spec.split(",")]
+        if len(parts) not in (3, 4):
+            raise argparse.ArgumentTypeError(
+                "Invalid --link format. Use NAME,BIND_IP,TARGET_IP[,TARGET_PORT]"
+            )
+        name, bind_ip, target_ip = parts[:3]
+        target_port = int(parts[3]) if len(parts) == 4 else 0
+        return Link(
+            name=name,
+            bind_addr=(bind_ip, 0),
+            target_addr=(target_ip, target_port),
+        )
+
     p = argparse.ArgumentParser()
     p.add_argument('-H', '--host', default='34.13.59.163', help='target host')
     p.add_argument('-P', '--port', type=int, default=8010, help='target port')
     p.add_argument('-p', '--local-port', type=int, default=9010, help='listen port')
     p.add_argument('--no-bind', action='store_true', help='skip local_addr (for localhost testing)')
+    p.add_argument(
+        '--link',
+        action='append',
+        default=[],
+        metavar='NAME,BIND_IP,TARGET_IP[,TARGET_PORT]',
+        help=(
+            'repeat to define links; each link can override target per network '
+            '(e.g. --link "eth0,192.168.2.188,192.168.1.109,8010" '
+            '--link "wlan0,192.168.68.50,192.168.68.51,8010")'
+        ),
+    )
     args = p.parse_args()
+    if args.link:
+        parsed_links = [parse_link_spec(spec) for spec in args.link]
+        for link in parsed_links:
+            if link.target_addr is None:
+                link.target_addr = (args.host, args.port)
+            elif link.target_addr[1] == 0:
+                link.target_addr = (link.target_addr[0], args.port)
+        links = parsed_links
+    else:
+        links = [
+            Link(name='Link A(eth0)', bind_addr=('192.168.2.188', 0), target_addr=(args.host, args.port)),
+            Link(name='Link B(wlan0)', bind_addr=('192.168.68.50', 0), target_addr=(args.host, args.port)),
+        ]
+    l.log(f'configured_links={[(lk.name, lk.bind_addr, lk.target_addr) for lk in links]}')
     try:
         asyncio.run(main(args.host, args.port, args.local_port, use_bind_addr=not args.no_bind))
     except KeyboardInterrupt:
