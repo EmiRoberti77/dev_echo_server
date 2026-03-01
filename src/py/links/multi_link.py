@@ -8,32 +8,35 @@ ethernet  -> linked to a router or satellite
 usb       -> linked to wifi or ethernet
 """
 
-from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from typing import List
+import time
 import asyncio
 import logger as l
+from link_probe import LinkProbe, Connection
 # --------------------------------------------
 BUFFER = 65536
 # --------------------------------------------
-@dataclass
-class Link:
-    name:str
-    bind_addr:Tuple[str,int]
-    target_addr: Optional[Tuple[str, int]] = None
-    avg_rtt_ms:float = float('inf')
+
+linkA = LinkProbe(Connection(
+    target_host='34.13.59.163',
+    target_port=8010,
+    link_host='192.168.137.2',
+    link_port=0,
+    link_name='Link A(plusnet)',
+))
+
+linkB = LinkProbe(Connection(
+    target_host='34.13.59.163',
+    target_port=8010,
+    link_host='192.168.68.50',
+    link_port=0,
+    link_name='Link B(02-5G)',
+))
+links: List[LinkProbe] = [linkA, linkB]
 # --------------------------------------------
-links: List[Link] = [
-    Link(name='Link A', bind_addr=('127.0.0.1', 0)),
-    Link(name='Link B', bind_addr=('127.0.0.1', 0)),
-]
-# --------------------------------------------
-link_idx = 0
-# --------------------------------------------
-def select_link() -> Link:
-    global link_idx
-    link = links[link_idx % len(links)]
-    link_idx += 1
-    return link
+def select_best_link(link_probes: List[LinkProbe]) -> LinkProbe:
+    """Select link with lowest avg RTT (best bandwidth/latency)."""
+    return min(link_probes, key=lambda p: p.avg_rtt_ms)
 # --------------------------------------------
 async def close_writer(w):
     try:
@@ -56,20 +59,16 @@ async def pipe(r:asyncio.StreamReader, w:asyncio.StreamWriter, tag:str):
 async def handle_client(
     client_r:asyncio.StreamReader,
     client_w:asyncio.StreamWriter,
-    default_target_host:str,
-    default_target_port:int,
+    target_host:str,
+    target_port:int,
+    link_probes: List[LinkProbe],
     use_bind_addr: bool = True,
 ) -> None:
-    selected_link = select_link()
-    target_host, target_port = selected_link.target_addr or (default_target_host, default_target_port)
-    l.log(
-        f'handle_client:selected={selected_link.name}:'
-        f'local={selected_link.bind_addr[0]}:'
-        f'target={target_host}:{target_port}'
-    )
+    selected_link = select_best_link(link_probes)
+    l.log(f'handle_client:selected={selected_link.name} avg_rtt_ms={selected_link.avg_rtt_ms:.0f}')
     try:
         kwargs = {"host": target_host, "port": target_port}
-        if use_bind_addr:
+        if use_bind_addr and selected_link.connection.link_host:
             kwargs["local_addr"] = selected_link.bind_addr
         upstream_r, upstream_w = await asyncio.open_connection(**kwargs)
         l.log(f'handle_client:connected_to_target')
@@ -93,8 +92,12 @@ async def handle_client(
 # -------------------------------------------
 async def main(target_host: str, target_port: int, local_port: int, use_bind_addr: bool = True):
     l.log('starting_server')
+    # Start probe tasks for all links (monitor bandwidth/RTT in background)
+    probe_tasks = [await probe.start() for probe in links]
+    l.log(f'probe_tasks_started:{len(probe_tasks)}')
+
     def handler(r, w):
-        return handle_client(r, w, target_host, target_port, use_bind_addr)
+        return handle_client(r, w, target_host, target_port, links, use_bind_addr)
     server = await asyncio.start_server(handler, '0.0.0.0', local_port)
     l.log(f'server_started:{local_port=}:{target_host=}:{target_port}')
     async with server:
@@ -102,54 +105,12 @@ async def main(target_host: str, target_port: int, local_port: int, use_bind_add
 
 if __name__ == "__main__":
     import argparse
-
-    def parse_link_spec(spec: str) -> Link:
-        # Format: NAME,BIND_IP,TARGET_IP[,TARGET_PORT]
-        # Example: "wifi,192.168.68.50,192.168.68.51,8010"
-        parts = [p.strip() for p in spec.split(",")]
-        if len(parts) not in (3, 4):
-            raise argparse.ArgumentTypeError(
-                "Invalid --link format. Use NAME,BIND_IP,TARGET_IP[,TARGET_PORT]"
-            )
-        name, bind_ip, target_ip = parts[:3]
-        target_port = int(parts[3]) if len(parts) == 4 else 0
-        return Link(
-            name=name,
-            bind_addr=(bind_ip, 0),
-            target_addr=(target_ip, target_port),
-        )
-
     p = argparse.ArgumentParser()
     p.add_argument('-H', '--host', default='34.13.59.163', help='target host')
     p.add_argument('-P', '--port', type=int, default=8010, help='target port')
     p.add_argument('-p', '--local-port', type=int, default=9010, help='listen port')
     p.add_argument('--no-bind', action='store_true', help='skip local_addr (for localhost testing)')
-    p.add_argument(
-        '--link',
-        action='append',
-        default=[],
-        metavar='NAME,BIND_IP,TARGET_IP[,TARGET_PORT]',
-        help=(
-            'repeat to define links; each link can override target per network '
-            '(e.g. --link "eth0,192.168.2.188,192.168.1.109,8010" '
-            '--link "wlan0,192.168.68.50,192.168.68.51,8010")'
-        ),
-    )
     args = p.parse_args()
-    if args.link:
-        parsed_links = [parse_link_spec(spec) for spec in args.link]
-        for link in parsed_links:
-            if link.target_addr is None:
-                link.target_addr = (args.host, args.port)
-            elif link.target_addr[1] == 0:
-                link.target_addr = (link.target_addr[0], args.port)
-        links = parsed_links
-    else:
-        links = [
-            Link(name='Link A(eth0)', bind_addr=('192.168.2.188', 0), target_addr=(args.host, args.port)),
-            Link(name='Link B(wlan0)', bind_addr=('192.168.68.50', 0), target_addr=(args.host, args.port)),
-        ]
-    l.log(f'configured_links={[(lk.name, lk.bind_addr, lk.target_addr) for lk in links]}')
     try:
         asyncio.run(main(args.host, args.port, args.local_port, use_bind_addr=not args.no_bind))
     except KeyboardInterrupt:
